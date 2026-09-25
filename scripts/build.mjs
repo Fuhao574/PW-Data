@@ -2,13 +2,14 @@
  * 友链合并构建脚本（CF Pages 运行）
  *
  *   1. 读 data/friends/*.json
- *   2. 每次都重新下载头像 → sharp 采样 → pickAccent 取色（拉取失败/超时才沿用旧 accent）
+ *   2. 每次都重新下载头像 → sharp 采样 → pickAccent 取色（拉取失败/超时才沿用旧 accent 和旧 snippet）
  *   3. 色相散排，写 order
  *   4. 头像存 dist/snippet/<order>.<ext>（无 order 的站长存 self）
  *   5. 合并成 dist/data/friends.json，带 total 和 updated
  *   6. dist/_headers 带 CORS，主站跨域直读
  *
  * 取色失败只跳过该卡片的颜色，不阻断构建；散排保证同样的输入每次结果一样。
+ * 头像拉取失败时沿用上次的 snippet 快照，所以清 dist 之前得先把旧产物读出来。
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -134,7 +135,56 @@ function spreadOrder(hues) {
   return best;
 }
 
+/**
+ * 把上一次的构建产物读进内存：旧 accent 和旧 snippet 快照，都按友链名索引。
+ * 源 json 里不再存这三个字段，本次拉取/取色失败时全靠它兜底——所以必须在清 dist 之前调用。
+ * 按名字而不是头像 URL 索引：朋友换头像地址时仍能对上同一份旧数据。
+ */
+async function loadPrevBuild() {
+  const map = new Map();
+  let old;
+  try {
+    old = JSON.parse(await fs.readFile(OUT_FILE, 'utf-8'));
+  } catch {
+    return map; /* 还没有旧产物 */
+  }
+  for (const f of old.friends || []) {
+    if (!f.name) continue;
+    const entry = {};
+    if (typeof f.accent === 'string' && f.accent) entry.accent = f.accent;
+    if (f.snippet) {
+      try {
+        entry.snippet = {
+          buf: await fs.readFile(path.join(OUT_DIR, f.snippet)),
+          ext: f.snippet.split('.').pop(),
+        };
+      } catch {
+        /* 旧文件不在了就跳过 */
+      }
+    }
+    map.set(f.name, entry);
+  }
+  return map;
+}
+
+/** 取色/拉取失败时，沿用上次构建算出来的 accent；没有就留空，日志说明 */
+function applyPrevAccent(json, prev, file, reason) {
+  if (prev?.accent) {
+    console.log(`  ${file}: ${reason}，沿用上次 accent ${prev.accent}`);
+    return prev.accent;
+  }
+  console.log(`  ${file}: ${reason}，无旧 accent 可用`);
+  return undefined;
+}
+
+/** 站长自己那张：回链用，不参与散排，snippet 固定存 self */
+function isSelf(f) {
+  return typeof f.url === 'string' && f.url.includes('fuhao574.cyou');
+}
+
 async function main() {
+  // 先留住上次的 accent 和 snippet 快照，再清 dist；本次构建有失败时靠它兜底
+  const prevBuild = await loadPrevBuild();
   // 每次构建都是全新产物，旧的 dist 整个清掉，避免残留过期文件
   await fs.rm(OUT_DIR, { recursive: true, force: true });
   await fs.mkdir(DATA_DIR, { recursive: true });
@@ -144,9 +194,14 @@ async function main() {
   const friends = [];
   for (const file of files) {
     const json = JSON.parse(await fs.readFile(path.join(SRC_DIR, file), 'utf-8'));
-    if (!json.avatar) { console.log(`  ${file}: 无头像，跳过取色`); friends.push(json); continue; }
+    const prev = prevBuild.get(json.name);
+    if (!json.avatar) {
+      console.log(`  ${file}: 无头像，跳过取色`);
+      friends.push(json);
+      continue;
+    }
     try {
-      // 每次构建都重新拉取头像并重算 accent；失败/超时才沿用旧值
+      // 每次构建都重新拉取头像并重算 accent；失败/超时才沿用上次构建的旧值
       const buf = await fetchAvatar(json.avatar);
       const pixels = await extractPixels(buf);
       const accent = pickAccent(pixels, PALETTE, INDIGO);
@@ -155,13 +210,19 @@ async function main() {
         console.log(`  ${file}: ${accent.name} ${rgb}`);
         json.accent = rgb;
       } else {
-        console.log(`  ${file}: 无彩色像素，沿用旧 accent`);
+        json.accent = applyPrevAccent(json, prev, file, '无彩色像素');
       }
       // 头像存 snippet，等散排算完 order 再落盘
       const fmt = (await sharp(buf).metadata()).format;
       json._snippet = { buf, ext: EXT_MAP[fmt] || 'png' };
     } catch (err) {
-      console.log(`  ${file}: 取色失败（${err.message}），沿用旧 accent`);
+      json.accent = applyPrevAccent(json, prev, file, `拉取失败（${err.message}）`);
+      if (prev?.snippet) {
+        json._snippet = prev.snippet;
+        console.log(`  ${file}: └ 沿用上次 snippet 快照`);
+      } else {
+        console.log(`  ${file}: └ 无旧 snippet 快照可用`);
+      }
     }
     friends.push(json);
   }
@@ -169,7 +230,7 @@ async function main() {
   // 色相散排：站长自己那张不参与
   const entries = [];
   for (const f of friends) {
-    if (typeof f.url === 'string' && f.url.includes('fuhao574.cyou')) continue;
+    if (isSelf(f)) continue;
     if (!f.accent) continue;
     const rgb = f.accent.split(',').map((p) => parseInt(p.trim(), 10));
     if (rgb.length !== 3 || !rgb.every((v) => Number.isInteger(v))) continue;
@@ -179,6 +240,15 @@ async function main() {
   const order = spreadOrder(entries.map((e) => e.hue));
   for (let pos = 0; pos < order.length; pos += 1) {
     entries[order[pos]].friend.order = pos;
+  }
+  // 取色彻底失败（新算的旧的全没有）的友链没进散排，也得给个编号，
+  // 否则 snippet 落盘时会用 'self' 文件名，把站长头像覆盖掉
+  let spare = order.length;
+  for (const f of friends) {
+    if (isSelf(f) || typeof f.order === 'number') continue;
+    f.order = spare;
+    spare += 1;
+    console.log(`  ${f.name}: 无 accent，排到末尾 order=${f.order}`);
   }
 
   // snippet 落盘：有 order 用 order，没有（站长）用 self；相对路径写进 json
