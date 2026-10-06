@@ -10,8 +10,15 @@
  *
  * 取色失败只跳过该卡片的颜色，不阻断构建；散排保证同样的输入每次结果一样。
  * 头像拉取失败时沿用上次的 snippet 快照，所以清 dist 之前得先把旧产物读出来。
+ *
+ * 兜底数据的来源（DATA_URL，必填）：
+ *   - 本地连跑时读 dist/（上一次本地构建的产物）
+ *   - CF Pages 每次都是全新克隆，dist/ 不存在；但构建期间自定义域仍指向
+ *     「上一次部署」，data/friends.json 与 snippet/* 都还活着——从这里读回来。
+ *   - DATA_URL 缺失直接报错退出：兜底链没有数据源就是裸奔，不能静默构建。
  */
 import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 import {
@@ -35,7 +42,30 @@ const PALETTE = Object.entries(ACCENTS).map(([name, hex]) => {
 const INDIGO = PALETTE.find((p) => p.name === 'indigo');
 const SAMPLE = 16;
 const AVATAR_TIMEOUT = 15_000;
+const PREV_TIMEOUT = 30_000;
 const EXT_MAP = { jpeg: 'jpg', jpg: 'jpg', png: 'png', webp: 'webp', gif: 'gif', avif: 'avif' };
+
+/* 本地开发时读 .env（脚本跑在构建链路里，环境变量可能还没注入）。
+ * 只补进程里还没有的键，CF Pages 注入的环境变量优先。 */
+function loadDotEnv(file) {
+  let text;
+  try {
+    text = readFileSync(file, 'utf-8');
+  } catch {
+    return;
+  }
+  for (const line of text.split('\n')) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
+    if (!m) continue;
+    if (process.env[m[1]] !== undefined) continue;
+    process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, '');
+  }
+}
+loadDotEnv(path.resolve('.env'));
+
+/* 兜底数据源：本地 dist 不可用时，从「上一次部署」读回旧 accent / snippet。
+ * 去掉结尾斜杠，后面统一拼相对路径。 */
+const DATA_URL = process.env.DATA_URL?.trim().replace(/\/+$/, '');
 
 async function fetchAvatar(url) {
   const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(AVATAR_TIMEOUT) });
@@ -139,28 +169,58 @@ function spreadOrder(hues) {
  * 把上一次的构建产物读进内存：旧 accent 和旧 snippet 快照，都按友链名索引。
  * 源 json 里不再存这三个字段，本次拉取/取色失败时全靠它兜底——所以必须在清 dist 之前调用。
  * 按名字而不是头像 URL 索引：朋友换头像地址时仍能对上同一份旧数据。
+ *
+ * 两个来源，本地优先：
+ *   1. 本地 dist/——本地连跑构建时有效
+ *   2. DATA_URL 指向的上次部署——CF Pages 全新克隆没有 dist/，但构建期间
+ *      自定义域仍服务着旧部署，data/friends.json 和 snippet/* 都能拉回来
  */
 async function loadPrevBuild() {
   const map = new Map();
-  let old;
+  let old = null;
   try {
     old = JSON.parse(await fs.readFile(OUT_FILE, 'utf-8'));
   } catch {
-    return map; /* 还没有旧产物 */
+    /* 本地没有旧产物，走线上兜底 */
+  }
+  if (!old) {
+    if (!DATA_URL) {
+      console.warn('  ⚠ 本地无旧产物且未配置 DATA_URL，本次构建没有兜底数据可用');
+      return map;
+    }
+    try {
+      const res = await fetch(`${DATA_URL}/data/friends.json`, { signal: AbortSignal.timeout(PREV_TIMEOUT) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      old = await res.json();
+      console.log(`  兜底：从上次部署 ${DATA_URL} 读到旧数据`);
+    } catch (err) {
+      console.warn(`  ⚠ 上次部署的兜底数据读取失败（${err.message}），本次构建无旧值可用`);
+      return map;
+    }
   }
   for (const f of old.friends || []) {
     if (!f.name) continue;
     const entry = {};
     if (typeof f.accent === 'string' && f.accent) entry.accent = f.accent;
     if (f.snippet) {
+      const rel = String(f.snippet).replace(/^\/+/, '');
+      const ext = rel.split('.').pop();
+      let buf = null;
       try {
-        entry.snippet = {
-          buf: await fs.readFile(path.join(OUT_DIR, f.snippet)),
-          ext: f.snippet.split('.').pop(),
-        };
+        buf = await fs.readFile(path.join(OUT_DIR, rel));
       } catch {
-        /* 旧文件不在了就跳过 */
+        /* 本地旧文件不在了，去上次部署拉 */
       }
+      if (!buf && DATA_URL) {
+        try {
+          const res = await fetch(`${DATA_URL}/${rel}`, { signal: AbortSignal.timeout(AVATAR_TIMEOUT) });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          buf = Buffer.from(await res.arrayBuffer());
+        } catch {
+          /* snippet 拉不回就算了，accent 还能单独用 */
+        }
+      }
+      if (buf) entry.snippet = { buf, ext };
     }
     map.set(f.name, entry);
   }
@@ -183,6 +243,14 @@ function isSelf(f) {
 }
 
 async function main() {
+  // DATA_URL 是兜底链的数据源：头像拉取失败时沿用上次 accent / snippet 全靠它。
+  // 缺了就是裸奔（一次失败就永久丢色），构建开始前直接拦下。
+  if (!DATA_URL) {
+    console.error('❌ 缺少 DATA_URL，无法读取上次构建的兜底数据');
+    console.error('   CF Pages 项目设置 → Environment variables 加 DATA_URL=https://data.fuhao574.cyou');
+    console.error('   本地构建在 friends-repo 根目录建 .env 写 DATA_URL=...');
+    process.exit(1);
+  }
   // 先留住上次的 accent 和 snippet 快照，再清 dist；本次构建有失败时靠它兜底
   const prevBuild = await loadPrevBuild();
   // 每次构建都是全新产物，旧的 dist 整个清掉，避免残留过期文件
