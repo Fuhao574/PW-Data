@@ -2,7 +2,18 @@
 
 > 世界那么大，能遇到交换友链的各位，是一件很棒的事情。
 
-本仓库是 [fuhao574.cyou](https://www.fuhao574.cyou/) 友链页的数据源，`data/friends/` 下每个 JSON 文件对应一位小伙伴。
+本仓库是 [fuhao574.cyou](https://www.fuhao574.cyou/) 友链页和博客构建数据源：`data/friends/` 下每个 JSON 文件对应一位小伙伴，`data/posts/` 下存放博客 Markdown。构建产物会生成友链 JSON、头像快照、文章元数据和预渲染 HTML。
+
+## 博客文章
+
+`data/posts/` 中的 Markdown 由本仓库构建为：
+
+- `dist/data/posts.json`：文章 frontmatter 元数据（草稿保留在元数据中但不生成公开 HTML）
+- `dist/posts/<slug>.html`：已发布文章的静态 HTML
+
+主站构建时从 `VITE_DATA_URL` 同步这两类产物，不再在浏览器解析 Markdown。
+
+文章目录由主站原有 `public/posts/` 迁移而来；新增或修改文章时，只需修改这里并重新部署本仓库，主站下一次构建会同步最新静态产物。
 
 ## 友链说明
 

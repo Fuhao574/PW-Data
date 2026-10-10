@@ -21,6 +21,17 @@ import fs from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
+import { marked } from 'marked';
+import hljs from 'highlight.js/lib/core';
+import php from 'highlight.js/lib/languages/php';
+import typescript from 'highlight.js/lib/languages/typescript';
+import javascript from 'highlight.js/lib/languages/javascript';
+import jsonLang from 'highlight.js/lib/languages/json';
+import bash from 'highlight.js/lib/languages/bash';
+import xml from 'highlight.js/lib/languages/xml';
+import cssLang from 'highlight.js/lib/languages/css';
+import yaml from 'highlight.js/lib/languages/yaml';
+import sql from 'highlight.js/lib/languages/sql';
 import {
   rgbToHsl, hueDistance, pickAccent, buildThemeRgb, hexToRgb,
 } from './friendColor.mjs';
@@ -30,6 +41,9 @@ const OUT_DIR = path.resolve('dist');
 const DATA_DIR = path.join(OUT_DIR, 'data');
 const SNIPPET_DIR = path.join(OUT_DIR, 'snippet');
 const OUT_FILE = path.join(DATA_DIR, 'friends.json');
+const POSTS_SRC_DIR = path.resolve('data/posts');
+const POSTS_OUT_DIR = path.join(OUT_DIR, 'posts');
+const POSTS_META_FILE = path.join(DATA_DIR, 'posts.json');
 
 const ACCENTS = {
   indigo: '#6366f1', teal: '#14b8a6', violet: '#8b5cf6',
@@ -44,6 +58,58 @@ const SAMPLE = 16;
 const AVATAR_TIMEOUT = 15_000;
 const PREV_TIMEOUT = 30_000;
 const EXT_MAP = { jpeg: 'jpg', jpg: 'jpg', png: 'png', webp: 'webp', gif: 'gif', avif: 'avif' };
+
+hljs.registerLanguage('php', php); hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('javascript', javascript); hljs.registerLanguage('json', jsonLang);
+hljs.registerLanguage('bash', bash); hljs.registerLanguage('xml', xml);
+hljs.registerLanguage('css', cssLang); hljs.registerLanguage('yaml', yaml); hljs.registerLanguage('sql', sql);
+
+const escapeHtml = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const escapeAttr = (text) => escapeHtml(text).replace(/'/g, '&#39;');
+const safeUrl = (value) => /^(?:https?:|mailto:|#|\/)/i.test(String(value).trim()) && !/^\s*javascript:/i.test(String(value)) ? String(value).trim() : '#';
+const stripComment = (value) => value.replace(/\s+#.*$/, '').trim();
+function parseFrontmatter(raw) {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return {};
+  const result = {}; let currentKey = '';
+  for (const line of match[1].split(/\r?\n/)) {
+    const kv = line.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+    if (kv) { currentKey = kv[1]; const value = stripComment(kv[2]).replace(/^['"]|['"]$/g, ''); if (value !== '') result[currentKey] = value === 'true' ? true : value === 'false' ? false : value; }
+    else if (currentKey) { const item = line.match(/^\s+-\s*(.+)$/); if (item) { const value = stripComment(item[1]).replace(/^['"]|['"]$/g, ''); if (Array.isArray(result[currentKey])) result[currentKey].push(value); else result[currentKey] = [value]; } }
+  }
+  return result;
+}
+function readableLength(raw) { return raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ').replace(/!\[[^\]]*\]\([^)]*\)/g, ' ').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, ' ').replace(/[#>*_~\\|\-]/g, ' ').replace(/\s/g, '').length; }
+function renderPost(raw) {
+  const renderer = new marked.Renderer();
+  renderer.html = ({ text }) => escapeHtml(text);
+  renderer.link = ({ href, title, text }) => `<a href="${escapeAttr(safeUrl(href))}" target="_blank" rel="noopener noreferrer"${title ? ` title="${escapeAttr(title)}"` : ''}>${text}</a>`;
+  renderer.image = ({ href, title, text }) => `<img src="${escapeAttr(safeUrl(href))}" alt="${escapeAttr(text)}"${title ? ` title="${escapeAttr(title)}"` : ''}>`;
+  renderer.code = ({ text, lang }) => {
+    const aliases = { ts: 'typescript', js: 'javascript', sh: 'bash', shell: 'bash', html: 'xml' };
+    const language = (lang || '').trim().toLowerCase(); const target = aliases[language] || language; const known = hljs.getLanguage(target);
+    const highlighted = known ? hljs.highlight(text, { language: target, ignoreIllegals: true }).value : escapeHtml(text); const label = known ? target : language || 'text';
+    return `<pre data-lang="${label}"><code class="hljs language-${label}">${highlighted}</code></pre>`;
+  };
+  marked.setOptions({ gfm: true, breaks: true });
+  return marked.parse(raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ''), { renderer, async: false });
+}
+
+async function buildPosts() {
+  if (!(await fs.stat(POSTS_SRC_DIR).catch(() => null))) return;
+  await fs.mkdir(POSTS_OUT_DIR, { recursive: true });
+  const metas = [];
+  for (const file of (await fs.readdir(POSTS_SRC_DIR)).filter(name => name.endsWith('.md')).sort()) {
+    const raw = await fs.readFile(path.join(POSTS_SRC_DIR, file), 'utf8');
+    const fm = parseFrontmatter(raw); const slug = file.replace(/\.md$/, '');
+    const meta = { slug, title: typeof fm.title === 'string' && fm.title ? fm.title : slug, description: typeof fm.description === 'string' ? fm.description : '', date: typeof fm.published === 'string' ? fm.published : '', image: typeof fm.image === 'string' ? fm.image : '', thumb: typeof fm.image === 'string' ? fm.image.replace(/(-cover)\.(webp|jpe?g|png)$/i, '$1-320.webp') : '', tags: Array.isArray(fm.tags) ? fm.tags : [], category: typeof fm.category === 'string' ? fm.category : '', draft: fm.draft === true, length: readableLength(raw) };
+    metas.push(meta);
+    if (!meta.draft) await fs.writeFile(path.join(POSTS_OUT_DIR, `${slug}.html`), renderPost(raw), 'utf8');
+  }
+  metas.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+  await fs.writeFile(POSTS_META_FILE, JSON.stringify(metas, null, 2) + '\n', 'utf8');
+  console.log(`文章构建完成：${metas.filter(post => !post.draft).length} 篇公开文章 → dist/posts/`);
+}
 
 /* 本地开发时读 .env（脚本跑在构建链路里，环境变量可能还没注入）。
  * 只补进程里还没有的键，CF Pages 注入的环境变量优先。 */
@@ -257,6 +323,7 @@ async function main() {
   await fs.rm(OUT_DIR, { recursive: true, force: true });
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.mkdir(SNIPPET_DIR, { recursive: true });
+  await buildPosts();
   const files = (await fs.readdir(SRC_DIR)).filter((f) => f.endsWith('.json')).sort();
 
   const friends = [];
