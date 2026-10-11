@@ -21,17 +21,7 @@ import fs from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
-import { marked } from 'marked';
-import hljs from 'highlight.js/lib/core';
-import php from 'highlight.js/lib/languages/php';
-import typescript from 'highlight.js/lib/languages/typescript';
-import javascript from 'highlight.js/lib/languages/javascript';
-import jsonLang from 'highlight.js/lib/languages/json';
-import bash from 'highlight.js/lib/languages/bash';
-import xml from 'highlight.js/lib/languages/xml';
-import cssLang from 'highlight.js/lib/languages/css';
-import yaml from 'highlight.js/lib/languages/yaml';
-import sql from 'highlight.js/lib/languages/sql';
+import { renderPost } from './postRenderer.mjs';
 import {
   rgbToHsl, hueDistance, pickAccent, buildThemeRgb, hexToRgb,
 } from './friendColor.mjs';
@@ -59,14 +49,6 @@ const AVATAR_TIMEOUT = 15_000;
 const PREV_TIMEOUT = 30_000;
 const EXT_MAP = { jpeg: 'jpg', jpg: 'jpg', png: 'png', webp: 'webp', gif: 'gif', avif: 'avif' };
 
-hljs.registerLanguage('php', php); hljs.registerLanguage('typescript', typescript);
-hljs.registerLanguage('javascript', javascript); hljs.registerLanguage('json', jsonLang);
-hljs.registerLanguage('bash', bash); hljs.registerLanguage('xml', xml);
-hljs.registerLanguage('css', cssLang); hljs.registerLanguage('yaml', yaml); hljs.registerLanguage('sql', sql);
-
-const escapeHtml = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const escapeAttr = (text) => escapeHtml(text).replace(/'/g, '&#39;');
-const safeUrl = (value) => /^(?:https?:|mailto:|#|\/)/i.test(String(value).trim()) && !/^\s*javascript:/i.test(String(value)) ? String(value).trim() : '#';
 const stripComment = (value) => value.replace(/\s+#.*$/, '').trim();
 function parseFrontmatter(raw) {
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -80,21 +62,6 @@ function parseFrontmatter(raw) {
   return result;
 }
 function readableLength(raw) { return raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ').replace(/!\[[^\]]*\]\([^)]*\)/g, ' ').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, ' ').replace(/[#>*_~\\|\-]/g, ' ').replace(/\s/g, '').length; }
-function renderPost(raw) {
-  const renderer = new marked.Renderer();
-  renderer.html = ({ text }) => escapeHtml(text);
-  renderer.link = ({ href, title, text }) => `<a href="${escapeAttr(safeUrl(href))}" target="_blank" rel="noopener noreferrer"${title ? ` title="${escapeAttr(title)}"` : ''}>${text}</a>`;
-  renderer.image = ({ href, title, text }) => `<img src="${escapeAttr(safeUrl(href))}" alt="${escapeAttr(text)}"${title ? ` title="${escapeAttr(title)}"` : ''}>`;
-  renderer.code = ({ text, lang }) => {
-    const aliases = { ts: 'typescript', js: 'javascript', sh: 'bash', shell: 'bash', html: 'xml' };
-    const language = (lang || '').trim().toLowerCase(); const target = aliases[language] || language; const known = hljs.getLanguage(target);
-    const highlighted = known ? hljs.highlight(text, { language: target, ignoreIllegals: true }).value : escapeHtml(text); const label = known ? target : language || 'text';
-    return `<pre data-lang="${label}"><code class="hljs language-${label}">${highlighted}</code></pre>`;
-  };
-  marked.setOptions({ gfm: true, breaks: true });
-  return marked.parse(raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, ''), { renderer, async: false });
-}
-
 async function buildPosts() {
   if (!(await fs.stat(POSTS_SRC_DIR).catch(() => null))) return;
   await fs.mkdir(POSTS_OUT_DIR, { recursive: true });
