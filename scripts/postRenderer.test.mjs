@@ -5,6 +5,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { parseFragment } from 'parse5';
 import { renderPost } from './postRenderer.mjs';
 
@@ -199,6 +200,7 @@ test('构建集成：使用同一渲染器生成真实文章，草稿不输出 H
       assertSafe(html);
       const raw = await fs.readFile(path.join(root, 'data/posts', `${meta.slug}.md`), 'utf8');
       assert.equal(html, renderPost(raw));
+      assert.equal(meta.htmlSha256, createHash('sha256').update(html).digest('hex'));
     }
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

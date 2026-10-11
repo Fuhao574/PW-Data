@@ -21,19 +21,24 @@ import fs from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
+import { createHash } from 'node:crypto';
 import { renderPost } from './postRenderer.mjs';
+import { validateFriends, validatePosts, text, webUrl, snippetPath, slugPath } from './buildContracts.mjs';
+import { download, IMAGE_TYPES, inspectImage } from './publicDownload.mjs';
+import { withTransaction } from './fileTransaction.mjs';
 import {
   rgbToHsl, hueDistance, pickAccent, buildThemeRgb, hexToRgb,
 } from './friendColor.mjs';
 
 const SRC_DIR = path.resolve('data/friends');
-const OUT_DIR = path.resolve('dist');
-const DATA_DIR = path.join(OUT_DIR, 'data');
-const SNIPPET_DIR = path.join(OUT_DIR, 'snippet');
-const OUT_FILE = path.join(DATA_DIR, 'friends.json');
+const LIVE_DIR = path.resolve('dist');
+let OUT_DIR = LIVE_DIR;
+let DATA_DIR = path.join(OUT_DIR, 'data');
+let SNIPPET_DIR = path.join(OUT_DIR, 'snippet');
+const OUT_FILE = path.join(LIVE_DIR, 'data/friends.json');
 const POSTS_SRC_DIR = path.resolve('data/posts');
-const POSTS_OUT_DIR = path.join(OUT_DIR, 'posts');
-const POSTS_META_FILE = path.join(DATA_DIR, 'posts.json');
+let POSTS_OUT_DIR = path.join(OUT_DIR, 'posts');
+let POSTS_META_FILE = path.join(DATA_DIR, 'posts.json');
 
 const ACCENTS = {
   indigo: '#6366f1', teal: '#14b8a6', violet: '#8b5cf6',
@@ -63,17 +68,29 @@ function parseFrontmatter(raw) {
 }
 function readableLength(raw) { return raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ').replace(/!\[[^\]]*\]\([^)]*\)/g, ' ').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, ' ').replace(/[#>*_~\\|\-]/g, ' ').replace(/\s/g, '').length; }
 async function buildPosts() {
-  if (!(await fs.stat(POSTS_SRC_DIR).catch(() => null))) return;
+  if (!(await fs.stat(POSTS_SRC_DIR).catch(() => null))) throw new Error('missing data/posts directory');
   await fs.mkdir(POSTS_OUT_DIR, { recursive: true });
   const metas = [];
   for (const file of (await fs.readdir(POSTS_SRC_DIR)).filter(name => name.endsWith('.md')).sort()) {
     const raw = await fs.readFile(path.join(POSTS_SRC_DIR, file), 'utf8');
     const fm = parseFrontmatter(raw); const slug = file.replace(/\.md$/, '');
+    for (const key of ['title', 'description', 'published', 'category', 'image']) {
+      if (fm[key] !== undefined) text(fm[key], `frontmatter.${key}`, key === 'description' ? 2000 : 2048);
+    }
+    if (fm.draft !== undefined && typeof fm.draft !== 'boolean') throw new Error(`${file}: draft must be boolean`);
+    if (fm.tags !== undefined && (!Array.isArray(fm.tags) || fm.tags.some(t => typeof t !== 'string'))) throw new Error(`${file}: tags must be string array`);
     const meta = { slug, title: typeof fm.title === 'string' && fm.title ? fm.title : slug, description: typeof fm.description === 'string' ? fm.description : '', date: typeof fm.published === 'string' ? fm.published : '', image: typeof fm.image === 'string' ? fm.image : '', thumb: typeof fm.image === 'string' ? fm.image.replace(/(-cover)\.(webp|jpe?g|png)$/i, '$1-320.webp') : '', tags: Array.isArray(fm.tags) ? fm.tags : [], category: typeof fm.category === 'string' ? fm.category : '', draft: fm.draft === true, length: readableLength(raw) };
+    const target = slugPath(POSTS_OUT_DIR, slug);
+    if (!meta.draft) {
+      const html = renderPost(raw);
+      if (Buffer.byteLength(html) > 4194304) throw new Error(`${file}: HTML exceeds 4 MiB`);
+      meta.htmlSha256 = createHash('sha256').update(html).digest('hex');
+      await fs.writeFile(target, html, 'utf8');
+    }
     metas.push(meta);
-    if (!meta.draft) await fs.writeFile(path.join(POSTS_OUT_DIR, `${slug}.html`), renderPost(raw), 'utf8');
   }
   metas.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+  validatePosts(metas);
   await fs.writeFile(POSTS_META_FILE, JSON.stringify(metas, null, 2) + '\n', 'utf8');
   console.log(`文章构建完成：${metas.filter(post => !post.draft).length} 篇公开文章 → dist/posts/`);
 }
@@ -101,9 +118,9 @@ loadDotEnv(path.resolve('.env'));
 const DATA_URL = process.env.DATA_URL?.trim().replace(/\/+$/, '');
 
 async function fetchAvatar(url) {
-  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(AVATAR_TIMEOUT) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+  const buf = await download(url, { maxBytes: 8388608, timeout: AVATAR_TIMEOUT, types: IMAGE_TYPES });
+  await inspectImage(buf);
+  return buf;
 }
 
 async function extractPixels(buf) {
@@ -222,33 +239,34 @@ async function loadPrevBuild() {
       return map;
     }
     try {
-      const res = await fetch(`${DATA_URL}/data/friends.json`, { signal: AbortSignal.timeout(PREV_TIMEOUT) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      old = await res.json();
+      const buf = await download(`${DATA_URL}/data/friends.json`, { timeout: PREV_TIMEOUT, types: ['application/json'] });
+      old = JSON.parse(buf.toString('utf8'));
       console.log(`  兜底：从上次部署 ${DATA_URL} 读到旧数据`);
     } catch (err) {
       console.warn(`  ⚠ 上次部署的兜底数据读取失败（${err.message}），本次构建无旧值可用`);
       return map;
     }
   }
-  for (const f of old.friends || []) {
+  let previous;
+  try { previous = validateFriends(old); } catch (e) { console.warn(`旧友链产物无效，跳过兜底：${e.message}`); return map; }
+  for (const f of previous) {
     if (!f.name) continue;
     const entry = {};
     if (typeof f.accent === 'string' && f.accent) entry.accent = f.accent;
     if (f.snippet) {
-      const rel = String(f.snippet).replace(/^\/+/, '');
+      const rel = snippetPath(f.snippet);
       const ext = rel.split('.').pop();
       let buf = null;
       try {
-        buf = await fs.readFile(path.join(OUT_DIR, rel));
+        buf = await fs.readFile(path.join(LIVE_DIR, rel));
+        await inspectImage(buf);
       } catch {
         /* 本地旧文件不在了，去上次部署拉 */
+        buf = null;
       }
       if (!buf && DATA_URL) {
         try {
-          const res = await fetch(`${DATA_URL}/${rel}`, { signal: AbortSignal.timeout(AVATAR_TIMEOUT) });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          buf = Buffer.from(await res.arrayBuffer());
+          buf = await fetchAvatar(`${DATA_URL}/${rel}`);
         } catch {
           /* snippet 拉不回就算了，accent 还能单独用 */
         }
@@ -272,7 +290,7 @@ function applyPrevAccent(json, prev, file, reason) {
 
 /** 站长自己那张：回链用，不参与散排，snippet 固定存 self */
 function isSelf(f) {
-  return typeof f.url === 'string' && f.url.includes('fuhao574.cyou');
+  return ['fuhao574.cyou', 'www.fuhao574.cyou'].includes(new URL(f.url).hostname);
 }
 
 async function main() {
@@ -284,18 +302,29 @@ async function main() {
     console.error('   本地构建在 friends-repo 根目录建 .env 写 DATA_URL=...');
     process.exit(1);
   }
-  // 先留住上次的 accent 和 snippet 快照，再清 dist；本次构建有失败时靠它兜底
-  const prevBuild = await loadPrevBuild();
-  // 每次构建都是全新产物，旧的 dist 整个清掉，避免残留过期文件
-  await fs.rm(OUT_DIR, { recursive: true, force: true });
+  webUrl(DATA_URL, 'DATA_URL');
+  await withTransaction(path.dirname(LIVE_DIR), ['dist'], buildStaged, { stateName: '.build-transaction' });
+}
+
+async function buildStaged(stage) {
+  OUT_DIR = path.join(stage, 'dist');
+  DATA_DIR = path.join(OUT_DIR, 'data'); SNIPPET_DIR = path.join(OUT_DIR, 'snippet');
+  POSTS_OUT_DIR = path.join(OUT_DIR, 'posts'); POSTS_META_FILE = path.join(DATA_DIR, 'posts.json');
+  // 所有新产物只写暂存；旧 dist 在完整成功之前保持不变。
   await fs.mkdir(DATA_DIR, { recursive: true });
   await fs.mkdir(SNIPPET_DIR, { recursive: true });
   await buildPosts();
   const files = (await fs.readdir(SRC_DIR)).filter((f) => f.endsWith('.json')).sort();
 
   const friends = [];
+  const inputs = [];
   for (const file of files) {
     const json = JSON.parse(await fs.readFile(path.join(SRC_DIR, file), 'utf-8'));
+    inputs.push({ file, json });
+  }
+  validateFriends(inputs.map(x => x.json), { source: true });
+  const prevBuild = await loadPrevBuild();
+  for (const { file, json } of inputs) {
     const prev = prevBuild.get(json.name);
     if (!json.avatar) {
       console.log(`  ${file}: 无头像，跳过取色`);
@@ -367,7 +396,7 @@ async function main() {
     updated: new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }) + '+08:00',
     friends,
   };
-  await fs.writeFile(OUT_FILE, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
+  await fs.writeFile(path.join(DATA_DIR, 'friends.json'), JSON.stringify(payload, null, 2) + '\n', 'utf-8');
 
   // CF Pages 的 _headers：主站跨域读取必须带 CORS，否则浏览器直接拦截
   await fs.writeFile(
@@ -376,6 +405,7 @@ async function main() {
     'utf-8',
   );
   console.log(`合并完成：${friends.length} 个友链 → dist/data/friends.json`);
+  validateFriends(payload);
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });
