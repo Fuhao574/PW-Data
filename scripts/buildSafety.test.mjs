@@ -15,10 +15,11 @@ import { withTransaction } from './fileTransaction.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const friend = { name: 'friend', url: 'https://example.com/', avatar: '', description: '' };
 const post = { slug: 'how-to-choose-SHP', title: 'title', description: '', date: '2026-10-11T10:00:00', category: '', image: '', thumb: '', tags: [], draft: false, length: 1, htmlSha256: 'a'.repeat(64) };
-test('现有十九位友邻全部通过新源契约', async () => {
+test('现有全部友邻通过新源契约', async () => {
   const files = await fs.readdir(path.join(root, 'data/friends'));
   const friends = await Promise.all(files.filter(f => f.endsWith('.json')).map(async f => JSON.parse(await fs.readFile(path.join(root, 'data/friends', f)))));
-  assert.equal(validateFriends(friends, { source: true }).length, 19);
+  assert.ok(friends.length > 0);
+  assert.equal(validateFriends(friends, { source: true }).length, friends.length);
 });
 test('安全 slug/快照路径与元数据类型拒绝，大小写旧 URL 不改', () => {
   assert.ok(slugPath('/posts', post.slug).endsWith('/how-to-choose-SHP.html'));
