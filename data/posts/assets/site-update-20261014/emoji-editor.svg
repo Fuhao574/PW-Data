@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="580" viewBox="0 0 1200 580">
+<rect x="0" y="0" width="1200" height="580" rx="0" fill="#f5f6fa" stroke="none"/>
+<g font-family="PingFang SC,Noto Sans CJK SC,Arial,sans-serif">
+<text x="50" y="48" fill="#4f46e5" font-size="12" font-weight="500" letter-spacing="2">02 / MORE THAN AN EMOJI GRID</text>
+<text x="50" y="99" fill="#272b3a" font-size="34" font-weight="600" >换表情，最后换成了输入框。</text>
+<text x="50" y="135" fill="#747d91" font-size="17" font-weight="400" >交互示意 · 不是历史截图</text>
+<rect x="50" y="175" width="490" height="220" rx="16" fill="#fff" stroke="#e1e5ee"/>
+<rect x="660" y="175" width="490" height="220" rx="16" fill="#fff" stroke="#e1e5ee"/>
+<text x="74" y="211" fill="#747d91" font-size="15" font-weight="400" >最初 / 普通文本输入</text>
+<text x="684" y="211" fill="#4f46e5" font-size="15" font-weight="400" >现在 / 图片作为一个整体</text>
+<rect x="74" y="238" width="442" height="110" rx="16" fill="#fbfbfd" stroke="#e1e5ee"/>
+<rect x="684" y="238" width="442" height="110" rx="16" fill="#fbfbfd" stroke="#e1e5ee"/>
+<text x="93" y="300" fill="#272b3a" font-size="23" font-weight="400" >你好 [emoji:custom-010]</text>
+<text x="704" y="300" fill="#272b3a" font-size="23" font-weight="400" >你好</text>
+<rect x="774" y="252" width="74" height="74" rx="9" fill="#edeaf9" stroke="#dad5ed"/>
+<circle cx="811" cy="282" r="12" fill="#b8afe4"/>
+<path d="M785 315l18-19 12 11 9-8 13 16" stroke="#a69cce" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M861 269v48" stroke="#272b3a" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M568 288h62m-8 -6 8 6-8 6" stroke="#b5bbca" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="74" y="377" fill="#747d91" font-size="15" font-weight="400" >删除时需要处理整段标记</text>
+<text x="684" y="377" fill="#747d91" font-size="15" font-weight="400" >一次退格，删除一枚表情</text>
+<path d="M300 410v40h510v-40" stroke="#cec9e6" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="600" y="484" fill="#4f46e5" font-size="20" font-weight="500" text-anchor="middle">发送时仍是原有文本协议，数据库不换格式</text>
+<text x="50" y="545" fill="#747d91" font-size="14" font-weight="400" >32 个 Noto 常用表情 + 26 个自定义表情；图中的方块仅示意图片输入单元。</text></g></svg>

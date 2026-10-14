@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="500" viewBox="0 0 1200 500">
+<rect x="0" y="0" width="1200" height="500" rx="0" fill="#f5f6fa" stroke="none"/>
+<g font-family="PingFang SC,Noto Sans CJK SC,Arial,sans-serif">
+<text x="50" y="48" fill="#4f46e5" font-size="12" font-weight="500" letter-spacing="2">04 / KEEP THE LAST GOOD VERSION</text>
+<text x="50" y="99" fill="#272b3a" font-size="34" font-weight="600" >新内容没准备好，旧文章先别删。</text>
+<text x="50" y="135" fill="#747d91" font-size="17" font-weight="400" >构建流程简图 · 根据现有同步与恢复逻辑整理</text>
+<rect x="50" y="187" width="240" height="100" rx="16" fill="#fff" stroke="#e1e5ee"/>
+<text x="74" y="224" fill="#747d91" font-size="14" font-weight="400" >正在使用</text>
+<text x="74" y="260" fill="#272b3a" font-size="21" font-weight="550" >上一份完整产物</text>
+<rect x="365" y="187" width="350" height="100" rx="16" fill="#fff" stroke="#e1e5ee"/>
+<text x="390" y="224" fill="#747d91" font-size="14" font-weight="400" >新版本先进入暂存区</text>
+<text x="390" y="260" fill="#272b3a" font-size="19" font-weight="400" >下载正文 → 元数据 / 哈希校验</text>
+<rect x="860" y="187" width="290" height="100" rx="16" fill="#eeedfa" stroke="#d8d3ef"/>
+<text x="885" y="224" fill="#747d91" font-size="14" font-weight="400" >校验全部通过</text>
+<text x="885" y="260" fill="#4f46e5" font-size="21" font-weight="550" >切换列表和正文</text>
+<path d="M306 237h42m-8 -6 8 6-8 6" stroke="#b5bbca" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M733 237h110m-8 -6 8 6-8 6" stroke="#b5bbca" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M540 303v69H170v-69" stroke="#b0a997" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="375" y="407" fill="#747d91" font-size="20" font-weight="500" text-anchor="middle">下载失败 / 校验失败：保留旧产物</text>
+<text x="50" y="463" fill="#747d91" font-size="14" font-weight="400" >图中省略锁与恢复标记等实现细节；切换阶段仍需回滚和中断恢复保护。</text></g></svg>

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="540" viewBox="0 0 1200 540">
+<rect x="0" y="0" width="1200" height="540" rx="0" fill="#f5f6fa" stroke="none"/>
+<g font-family="PingFang SC,Noto Sans CJK SC,Arial,sans-serif">
+<text x="50" y="48" fill="#4f46e5" font-size="12" font-weight="500" letter-spacing="2">03 / ONE VISIT, ONE FINISH</text>
+<text x="50" y="99" fill="#272b3a" font-size="34" font-weight="600" >用户只切了一次页，不该看两次收尾。</text>
+<text x="50" y="135" fill="#747d91" font-size="17" font-weight="400" >加载衔接示意 · 横条长度不代表实测耗时</text>
+<text x="50" y="207" fill="#747d91" font-size="19" font-weight="500" >之前</text>
+<rect x="150" y="177" width="315" height="64" rx="10" fill="#e9e6fa" stroke="none"/>
+<text x="175" y="216" fill="#272b3a" font-size="21" font-weight="400" >下载页面代码</text>
+<path d="M486 209h45m-8 -6 8 6-8 6" stroke="#b5bbca" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="553" y="216" fill="#4f46e5" font-size="28" font-weight="600" >✓</text>
+<path d="M600 209h45m-8 -6 8 6-8 6" stroke="#b5bbca" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="668" y="177" width="270" height="64" rx="10" fill="#e9e6fa" stroke="none"/>
+<text x="694" y="216" fill="#272b3a" font-size="21" font-weight="400" >读取动态数据</text>
+<path d="M958 209h45m-8 -6 8 6-8 6" stroke="#b5bbca" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1026" y="216" fill="#4f46e5" font-size="28" font-weight="600" >✓</text>
+<text x="50" y="320" fill="#4f46e5" font-size="19" font-weight="500" >现在</text>
+<rect x="150" y="276" width="690" height="118" rx="12" fill="#fff" stroke="#e1e5ee"/>
+<text x="176" y="312" fill="#272b3a" font-size="19" font-weight="400" >下载页面代码</text>
+<path d="M365 305h48m-8 -6 8 6-8 6" stroke="#b5bbca" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="442" y="312" fill="#272b3a" font-size="19" font-weight="400" >准备首次数据</text>
+<path d="M176 350h634" stroke="#4f46e5" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="715" cy="350" r="6" fill="#4f46e5"/>
+<path d="M860 333h50m-8 -6 8 6-8 6" stroke="#b5bbca" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="944" y="343" fill="#4f46e5" font-size="34" font-weight="600" >✓</text>
+<text x="990" y="341" fill="#272b3a" font-size="20" font-weight="400" >内容推入</text>
+<text x="150" y="434" fill="#747d91" font-size="18" font-weight="400" >同一轮等待，数据与页面均就绪后收尾一次。</text>
+<text x="50" y="503" fill="#747d91" font-size="14" font-weight="400" >已有有效缓存时直接进入；快速请求不为了展示动画强制等待。</text></g></svg>
