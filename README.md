@@ -4,26 +4,6 @@
 
 本仓库是 [fuhao574.cyou](https://www.fuhao574.cyou/) 友链页和博客构建数据源：`data/friends/` 下每个 JSON 文件对应一位小伙伴，`data/posts/` 下存放博客 Markdown。构建产物会生成友链 JSON、头像快照、文章元数据和预渲染 HTML。
 
-## 博客文章
-
-`data/posts/` 中的 Markdown 由本仓库构建为：
-
-- `dist/data/posts.json`：文章 frontmatter 元数据（草稿保留在元数据中但不生成公开 HTML）
-- `dist/posts/<slug>.html`：已发布文章的静态 HTML
-
-主站构建时从 `VITE_DATA_URL` 同步这两类产物，不再在浏览器解析 Markdown。
-
-文章目录由主站原有 `public/posts/` 迁移而来；新增或修改文章时，只需修改这里并重新部署本仓库，主站下一次构建会同步最新静态产物。
-
-### 文章渲染安全与测试
-
-构建输入校验、头像资源限制、产物哈希和中断恢复见 [docs/BUILD_SAFETY.md](./docs/BUILD_SAFETY.md)。
-
-- `scripts/postRenderer.mjs` 是构建与测试共同使用的渲染器。原生 HTML（包括链接文字内的 HTML）只作为转义后的文字显示；链接中的加粗、斜体、代码和 Markdown 图片正常渲染。
-- 链接保留 HTTP(S)、`mailto:`、站内绝对路径、锚点和协议相对地址；图片不接受 `mailto:`。危险协议或带控制字符的地址不会生成链接/图片标签。
-- 代码语言名只接受最长 32 个字符的字母、数字、下划线、加号与连字符。非法语言名回退 `text`；合法但未注册的语言（如 `tsx`）保留标签，不高亮。原有高亮语言与别名保持不变。
-- `npm test` 离线运行安全、正常 Markdown、全部实际文章和隔离构建回归测试。测试用 HTML 解析器检查实际标签与属性，不会把代码示例里的转义文字误判为恶意标签。
-- `npm run build` 先运行测试；测试失败时不开始正式构建。测试库只属于本仓库开发依赖，不进入主站浏览器。构建环境需要安装开发依赖（如 `npm ci --include=dev`），不能使用 `--omit=dev` 后直接构建。
 
 ## 友链说明
 
